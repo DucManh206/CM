@@ -105,21 +105,3 @@ Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_7 like Mac OS X) AppleWebKit/605.1.15 (K
 Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1 # iPadOS 18
 Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1 # iPadOS 17.5
 Mozilla/5.0 (iPad; CPU OS 16_7_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.7 Mobile/15E148 Safari/604.1
-
-# --- Chrome Android (More Phones) ---
-Mozilla/5.0 (Linux; Android 14; OnePlus 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36
-Mozilla/5.0 (Linux; Android 14; M2401SPG) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36 # Poco X6 Pro
-Mozilla/5.0 (Linux; Android 14; V2333) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36 # vivo X100 Pro
-
-# --- Chrome Android (More Tablets) ---
-Mozilla/5.0 (Linux; Android 14; TB970M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 # Lenovo Tab P12 Pro
-Mozilla/5.0 (Linux; Android 14; GM1925) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 # OnePlus Pad
-
-# --- Mobile Browsers ---
-Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) YaBrowser/24.3.0 Mobile Safari/537.36 # Yandex Browser
-Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/136.0.0.0 Mobile/15E148 Safari/604.1 # Chrome iOS
-Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/137.0 Mobile/15E148 Safari/605.1.15 # Firefox iOS
-
-# --- Game Consoles ---
-Mozilla/5.0 (PlayStation 5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15
-Mozilla/5.0 (Nintendo Switch; WebKit) AppleWebKit/605.1.15 (KHTML, like Gecko) NintendoBrowser/6.0.1 Safari/605.1.15
