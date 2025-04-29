@@ -5,156 +5,141 @@ import os
 import tkinter
 import tkinter.filedialog
 import tkinter.messagebox
-import customtkinter
-import threading # Cần cho việc chạy tác vụ nền
-import time # Cần cho time.strftime
+import threading
+import time
+import tempfile
 
 # --- 1. Kiểm tra và Cài đặt Dependencies ---
-# Phải thực hiện trước khi import các module khác và thư viện cần kiểm tra
 from utils import check_and_install_dependencies
-REQUIRED_LIBRARIES = ["selenium", "customtkinter"] # Các thư viện cần thiết cho tool
+# <<< THÊM THƯ VIỆN MỚI VÀO DANH SÁCH KIỂM TRA >>>
+REQUIRED_LIBRARIES = ["selenium", "customtkinter", "webdriver-manager", "psutil"]
 if not check_and_install_dependencies(REQUIRED_LIBRARIES):
-    print("Thoát ứng dụng do thiếu dependencies hoặc lỗi cài đặt.")
-    # Không cần sys.exit(1) vì check_and_install_dependencies đã hiển thị lỗi
-    # và việc import sau sẽ thất bại nếu cần thiết
-    # Tuy nhiên, để chắc chắn, có thể thêm sys.exit(1)
-    sys.exit("Lỗi Dependency")
-
+    print("Thoát ứng dụng do lỗi dependencies.")
+    sys.exit(1)
 
 # --- 2. Import các thư viện và module khác ---
-# Các thư viện chuẩn
-import tempfile # Cần cho việc chạy script từ ô paste
+import customtkinter
 
-# Các module tự định nghĩa
 from gui_setup import setup_create_tab, setup_manage_tab, setup_script_tab
+# <<< Import hàm mới từ utils >>>
 from profile_actions import create_chrome_profiles_threaded, launch_profile, delete_profiles
 from script_runner import run_python_script_threaded
-from utils import load_user_agents, get_chrome_executable_path, update_status, LOADED_USER_AGENT_LIST # Import các hàm và biến cần thiết
+from utils import load_user_agents, get_chrome_executable_path, update_status, close_chrome_process_by_profile
 
 # --- Lớp ứng dụng chính ---
 class ProfileCreatorApp(customtkinter.CTk):
     def __init__(self):
+        # ... (Phần __init__ khác giữ nguyên) ...
         super().__init__()
-        self.title("Công cụ quản lý hồ sơ Chrome v3 - Modular")
+        self.title("Công cụ quản lý hồ sơ Chrome v3.5 - AutoDriver/Close")
         self.geometry("750x600")
-
         customtkinter.set_appearance_mode("System")
         customtkinter.set_default_color_theme("blue")
-
-        # --- Biến dùng chung ---
         self.home_dir = os.path.expanduser("~")
         self.default_profile_path = os.path.join(self.home_dir, "ChromeProfiles")
+        if not os.path.exists(self.default_profile_path):
+            try:
+                os.makedirs(self.default_profile_path)
+                print(f"Đã tạo thư mục mặc định: {self.default_profile_path}")
+            except OSError as e:
+                print(f"Không thể tạo thư mục mặc định '{self.default_profile_path}': {e}")
+                self.default_profile_path = self.home_dir
         self.entry_dir_var = tkinter.StringVar(value=self.default_profile_path)
-        self.chrome_path = get_chrome_executable_path() # Gọi hàm từ utils
+        self.chrome_path = get_chrome_executable_path()
         self.selected_script_path = None
         self.script_display_var = tkinter.StringVar(value="Chưa chọn file script")
-
-        # --- Biến trạng thái Checkbox (Riêng cho mỗi tab cần) ---
         self.profile_checkbox_vars_manage = {}
         self.profile_checkbox_vars_script = {}
-
-        # --- Tải User Agents ---
-        load_user_agents() # Gọi hàm từ utils
+        self.select_all_manage_var = tkinter.BooleanVar(value=False)
+        self.select_all_script_var = tkinter.BooleanVar(value=False)
+        self.loaded_ua_list = load_user_agents()
+        self.ua_load_success = bool(self.loaded_ua_list)
         if not self.chrome_path:
              print("Cảnh báo: Không tự động tìm thấy Google Chrome.")
-             # Có thể hiển thị cảnh báo trên GUI nếu muốn
-
-        # --- Tạo TabView ---
+             self.after(100, lambda: tkinter.messagebox.showwarning("Không tìm thấy Chrome", "...")) # Giữ lại cảnh báo
         self.tab_view = customtkinter.CTkTabview(self)
         self.tab_view.pack(pady=10, padx=10, fill="both", expand=True)
         self.tab_view.add("Tạo Profile")
         self.tab_view.add("Quản lý")
         self.tab_view.add("Script")
-
-        # --- Thiết lập từng tab bằng cách gọi hàm từ gui_setup ---
-        # Truyền self (instance của app) vào để các hàm setup có thể gán widget
-        # và thiết lập command gọi đến các method của self
-        setup_create_tab(self.tab_view.tab("Tạo Profile"), self)
+        self.tab_view.set("Tạo Profile")
+        setup_create_tab(self.tab_view.tab("Tạo Profile"), self, self.ua_load_success)
         setup_manage_tab(self.tab_view.tab("Quản lý"), self)
         setup_script_tab(self.tab_view.tab("Script"), self)
+        self.after(100, self.refresh_profile_list_manage)
+        self.after(100, self.refresh_profile_list_script)
 
-        # --- Tải danh sách profile ban đầu ---
-        self.refresh_profile_list_manage()
-        self.refresh_profile_list_script()
+    # --- Các hàm xử lý sự kiện ---
 
-
-    # --- Các hàm xử lý sự kiện (commands của các nút) ---
+    # ... (browse_directory, refresh_profile_list_manage, refresh_profile_list_script,
+    #      _refresh_profile_list_internal, get_selected_profiles_manage,
+    #      get_selected_profiles_script, toggle_select_all_manage,
+    #      toggle_select_all_script, open_selected_profiles_manage giữ nguyên) ...
 
     def browse_directory(self):
-        """Mở hộp thoại chọn thư mục và cập nhật cho cả 2 tab."""
         initial_dir = self.entry_dir_var.get() if os.path.isdir(self.entry_dir_var.get()) else self.home_dir
-        directory = tkinter.filedialog.askdirectory(initialdir=initial_dir)
+        directory = tkinter.filedialog.askdirectory(initialdir=initial_dir, title="Chọn thư mục gốc chứa Profiles")
         if directory:
             self.entry_dir_var.set(directory)
-            # Làm mới cả hai danh sách khi đổi thư mục
             self.refresh_profile_list_manage()
             self.refresh_profile_list_script()
 
-    # --- Hàm làm mới danh sách cho tab Quản lý ---
     def refresh_profile_list_manage(self):
-        self._refresh_profile_list_internal(self.profile_list_frame_manage, self.profile_checkbox_vars_manage, self.status_textbox_manage)
+        if hasattr(self, 'select_all_manage_var'):
+            self.select_all_manage_var.set(False)
+        if hasattr(self, 'profile_list_frame_manage') and hasattr(self, 'status_textbox_manage'):
+            self._refresh_profile_list_internal(self.profile_list_frame_manage, self.profile_checkbox_vars_manage, self.status_textbox_manage)
+        else:
+            print("Lỗi: Widget của tab Quản lý chưa được khởi tạo khi gọi refresh.")
 
-    # --- Hàm làm mới danh sách cho tab Script ---
     def refresh_profile_list_script(self):
-        self._refresh_profile_list_internal(self.profile_list_frame_script, self.profile_checkbox_vars_script, self.status_textbox_script) # Log vào status box của script
+        if hasattr(self, 'select_all_script_var'):
+             self.select_all_script_var.set(False)
+        if hasattr(self, 'profile_list_frame_script') and hasattr(self, 'status_textbox_script'):
+             self._refresh_profile_list_internal(self.profile_list_frame_script, self.profile_checkbox_vars_script, self.status_textbox_script)
+        else:
+            print("Lỗi: Widget của tab Script chưa được khởi tạo khi gọi refresh.")
 
-    # --- Hàm nội bộ để làm mới danh sách (tránh lặp code) ---
     def _refresh_profile_list_internal(self, target_frame, target_checkbox_dict, status_box_to_update):
-        """Hàm helper để làm mới danh sách profile cho một frame cụ thể."""
-        # Xóa widget cũ
         for widget in target_frame.winfo_children():
             widget.destroy()
         target_checkbox_dict.clear()
-
         base_dir = self.entry_dir_var.get()
-
         if not os.path.isdir(base_dir):
             label_no_dir = customtkinter.CTkLabel(target_frame, text=f"Thư mục không tồn tại:\n{base_dir}", text_color="gray")
             label_no_dir.pack(pady=10, padx=5)
             update_status(status_box_to_update, f"Lỗi refresh list: Thư mục không tồn tại '{base_dir}'\n")
             return
-
         try:
             found_profiles = []
-            # Chỉ liệt kê thư mục bắt đầu bằng "Profile_" để tránh thư mục lạ
             for item in os.listdir(base_dir):
                 item_path = os.path.join(base_dir, item)
                 if os.path.isdir(item_path) and item.startswith("Profile_"):
                     found_profiles.append((item, item_path))
-                elif os.path.isdir(item_path): # Log thư mục không đúng chuẩn nếu cần debug
+                elif os.path.isdir(item_path):
                     print(f"Debug: Bỏ qua thư mục không đúng định dạng tên: {item}")
-
-
             if not found_profiles:
                 label_empty = customtkinter.CTkLabel(target_frame, text="(Không tìm thấy profile nào dạng 'Profile_XXX')", text_color="gray")
                 label_empty.pack(pady=10, padx=5)
             else:
-                found_profiles.sort(key=lambda x: x[0]) # Sắp xếp
+                found_profiles.sort(key=lambda x: x[0])
                 for profile_name, profile_path in found_profiles:
                     item_frame = customtkinter.CTkFrame(target_frame, fg_color="transparent")
-                    item_frame.pack(fill="x", pady=(1, 1), padx=(5, 10)) # Giảm pady, tăng padx phải
-
+                    item_frame.pack(fill="x", pady=(0, 0), padx=(5, 10))
                     checkbox_var = tkinter.BooleanVar()
-                    # Giảm kích thước checkbox nếu có thể (tùy thuộc vào theme)
                     checkbox = customtkinter.CTkCheckBox(item_frame, text="", variable=checkbox_var, width=10, height=10)
                     checkbox.pack(side=tkinter.LEFT, padx=(0, 5))
                     target_checkbox_dict[profile_path] = checkbox_var
-
                     button = customtkinter.CTkButton(
-                        item_frame,
-                        text=profile_name,
-                        anchor="w",
-                        height=24, # Giảm chiều cao nút
-                        command=lambda p=profile_path: self.launch_profile(p) # Mở đơn lẻ
+                        item_frame, text=profile_name, anchor="w", height=24,
+                        command=lambda p=profile_path: self.launch_profile(p)
                     )
-                    button.pack(side=tkinter.LEFT, fill="x", expand=True, padx=0, pady=0)
-
+                    button.pack(side=tkinter.LEFT, fill="x", expand=True, padx=0, pady=1)
         except Exception as e:
              label_error = customtkinter.CTkLabel(target_frame, text=f"Lỗi khi đọc thư mục:\n{e}", text_color="red")
              label_error.pack(pady=10, padx=5)
              update_status(status_box_to_update, f"Lỗi refresh list: {e}\n")
 
-    # --- Hàm lấy profile đã chọn cho tab Quản lý ---
     def get_selected_profiles_manage(self):
         selected_paths = []
         for profile_path, var in self.profile_checkbox_vars_manage.items():
@@ -162,7 +147,6 @@ class ProfileCreatorApp(customtkinter.CTk):
                 selected_paths.append(profile_path)
         return selected_paths
 
-    # --- Hàm lấy profile đã chọn cho tab Script ---
     def get_selected_profiles_script(self):
         selected_paths = []
         for profile_path, var in self.profile_checkbox_vars_script.items():
@@ -170,7 +154,16 @@ class ProfileCreatorApp(customtkinter.CTk):
                 selected_paths.append(profile_path)
         return selected_paths
 
-    # --- Hàm xử lý cho các nút ở tab Quản lý ---
+    def toggle_select_all_manage(self):
+        target_state = self.select_all_manage_var.get()
+        for var in self.profile_checkbox_vars_manage.values():
+            var.set(target_state)
+
+    def toggle_select_all_script(self):
+        target_state = self.select_all_script_var.get()
+        for var in self.profile_checkbox_vars_script.values():
+            var.set(target_state)
+
     def open_selected_profiles_manage(self):
         selected = self.get_selected_profiles_manage()
         if not selected:
@@ -178,97 +171,154 @@ class ProfileCreatorApp(customtkinter.CTk):
             return
         count = len(selected)
         print(f"Yêu cầu mở hàng loạt {count} profiles từ tab Quản lý...")
-        if count > 10: # Giảm cảnh báo xuống 5 profile?
-             if not tkinter.messagebox.askyesno("Cảnh báo", f"Bạn sắp mở {count} hồ sơ Chrome cùng lúc. Điều này có thể tốn nhiều tài nguyên. Tiếp tục?"):
+        if count > 5:
+             if not tkinter.messagebox.askyesno("Cảnh báo", f"Bạn sắp mở {count} hồ sơ Chrome cùng lúc. Tiếp tục?"):
                  return
         opened_count = 0
         for profile_path in selected:
-            # Gọi hàm launch_profile từ profile_actions, truyền status box của tab quản lý
             if launch_profile(profile_path, self.chrome_path, show_error=False, status_textbox=self.status_textbox_manage):
                 opened_count += 1
             else:
                  print(f"-> Bỏ qua mở profile lỗi: {os.path.basename(profile_path)}")
         print(f"Đã cố gắng mở {opened_count}/{count} profiles.")
         if opened_count < count:
-             update_status(self.status_textbox_manage, f"Cảnh báo: Đã xảy ra lỗi khi mở một số profile. Kiểm tra log console.\n")
+             update_status(self.status_textbox_manage, f"Cảnh báo: Lỗi khi mở một số profile.\n")
 
+    # <<< THAY ĐỔI HÀM XÓA >>>
     def delete_selected_profiles_manage(self):
+        """Xóa profile đã chọn từ tab Quản lý, cố gắng đóng Chrome trước."""
         selected = self.get_selected_profiles_manage()
         if not selected:
             tkinter.messagebox.showinfo("Thông báo", "Vui lòng chọn ít nhất một profile từ danh sách trên để xóa.")
             return
+
         count = len(selected)
-        profile_names = "\n - ".join([os.path.basename(p) for p in selected])
-        if tkinter.messagebox.askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN {count} profile sau?\n\n - {profile_names}\n\nHành động này không thể hoàn tác!"):
-            # Gọi hàm delete_profiles từ profile_actions
-            deleted_count, errors = delete_profiles(selected, self.status_textbox_manage)
-            if errors:
-                tkinter.messagebox.showerror("Lỗi khi xóa", f"Không thể xóa một số profile:\n\n" + "\n".join(errors))
-            # Làm mới cả hai danh sách sau khi xóa
+        display_limit = 10
+        profile_names_list = [os.path.basename(p) for p in selected]
+        profile_names_display = "\n - ".join(profile_names_list[:display_limit])
+        if count > display_limit:
+            profile_names_display += f"\n - ... và {count - display_limit} profiles khác."
+
+        # Xác nhận xóa
+        if tkinter.messagebox.askyesno("Xác nhận xóa",
+                   f"Bạn sắp XÓA VĨNH VIỄN {count} profile sau:\n\n - {profile_names_display}\n\n"
+                   f"Công cụ sẽ cố gắng đóng cửa sổ Chrome đang mở của các profile này trước khi xóa.\n"
+                   f"Hành động này không thể hoàn tác! Bạn chắc chắn?"):
+
+            profiles_to_delete_after_check = []
+            update_status(self.status_textbox_manage, f"--- Bắt đầu quá trình xóa {count} profiles ---\n")
+
+            # 1. Cố gắng đóng các tiến trình Chrome liên quan
+            update_status(self.status_textbox_manage, "Bước 1: Cố gắng đóng các cửa sổ Chrome đang chạy...\n")
+            closed_something = False
+            for profile_path in selected:
+                update_status(self.status_textbox_manage, f"Kiểm tra profile: {os.path.basename(profile_path)}...\n")
+                # Gọi hàm đóng từ utils, truyền status box của tab quản lý
+                if close_chrome_process_by_profile(profile_path, self.status_textbox_manage):
+                     closed_something = True # Ghi nhận là đã cố gắng đóng (dù có thể không tìm thấy)
+                     profiles_to_delete_after_check.append(profile_path) # Thêm vào danh sách sẽ xóa
+                else:
+                     # Nếu hàm đóng báo lỗi (ví dụ: Access Denied), có thể hỏi người dùng
+                     # Hoặc đơn giản là ghi log và không xóa profile đó nữa
+                     update_status(self.status_textbox_manage, f"-> Cảnh báo: Không thể đóng tiến trình cho {os.path.basename(profile_path)} hoặc có lỗi. Sẽ không xóa profile này.\n")
+
+            if closed_something:
+                 update_status(self.status_textbox_manage, "Chờ vài giây để tiến trình đóng hoàn toàn...\n")
+                 # Dùng after thay vì sleep để GUI không bị đơ hoàn toàn
+                 # Tuy nhiên, việc xóa file vẫn nên làm ngay sau đó. Sleep ngắn là chấp nhận được.
+                 time.sleep(2) # Chờ 2 giây
+
+            # 2. Thực hiện xóa các thư mục profile (chỉ những cái đã qua bước kiểm tra/đóng)
+            if profiles_to_delete_after_check:
+                update_status(self.status_textbox_manage, "\nBước 2: Thực hiện xóa thư mục profiles...\n")
+                deleted_count, errors = delete_profiles(profiles_to_delete_after_check, self.status_textbox_manage) # Gọi hàm từ profile_actions
+
+                if errors:
+                    error_display = "\n".join(errors[:5])
+                    if len(errors) > 5:
+                        error_display += f"\n... (và {len(errors) - 5} lỗi khác, xem console)"
+                    tkinter.messagebox.showerror("Lỗi khi xóa", f"Không thể xóa một số thư mục profile:\n\n" + error_display)
+            else:
+                 update_status(self.status_textbox_manage, "\nKhông có profile nào được xóa (do không tìm thấy hoặc lỗi đóng tiến trình).\n")
+
+
+            update_status(self.status_textbox_manage, f"--- Kết thúc quá trình xóa ---\n")
+            # Làm mới cả hai danh sách sau khi hoàn tất
             self.refresh_profile_list_manage()
             self.refresh_profile_list_script()
+        else:
+            update_status(self.status_textbox_manage, "Hủy bỏ thao tác xóa.\n")
 
-    # --- Hàm mở profile đơn lẻ (gọi từ nút trong danh sách) ---
+
     def launch_profile(self, profile_path):
-        """Mở một profile đơn lẻ khi nhấn nút tương ứng."""
-        # Gọi hàm launch_profile từ profile_actions, không ghi log vào status box cụ thể
+        """Mở một profile đơn lẻ."""
+        # Gọi hàm từ profile_actions
         launch_profile(profile_path, self.chrome_path, show_error=True, status_textbox=None)
 
-    # --- Hàm xử lý cho các nút ở tab Script ---
     def select_script_file(self):
-        """Mở hộp thoại để chọn file script Python (.py)."""
+        """Mở hộp thoại chọn file script."""
+        # ... (Code giữ nguyên) ...
         filetypes = (("Python files", "*.py"), ("All files", "*.*"))
+        initial_dir = os.path.dirname(os.path.abspath(__file__))
         filepath = tkinter.filedialog.askopenfilename(
             title="Chọn file script Python",
-            initialdir=os.getcwd(),
+            initialdir=initial_dir,
             filetypes=filetypes
         )
         if filepath:
             self.selected_script_path = filepath
             self.script_display_var.set(os.path.basename(filepath))
-            if self.script_paste_textbox.winfo_exists(): # Xóa ô paste nếu chọn file
+            if hasattr(self, 'script_paste_textbox') and self.script_paste_textbox.winfo_exists():
                 self.script_paste_textbox.delete("1.0", tkinter.END)
             update_status(self.status_textbox_script, f"Đã chọn file script: {filepath}\n")
-        # Không làm gì nếu người dùng hủy
+
+
+    def clear_pasted_script(self):
+        """Xóa nội dung trong ô paste script."""
+        # ... (Code giữ nguyên) ...
+        print("Yêu cầu xóa nội dung ô script.")
+        if hasattr(self, 'script_paste_textbox') and self.script_paste_textbox.winfo_exists():
+            self.script_paste_textbox.delete("1.0", tkinter.END)
+            update_status(self.status_textbox_script, "Đã xóa nội dung trong ô dán script.\n")
+        else:
+            print("Lỗi: Không tìm thấy widget script_paste_textbox.")
+
 
     def start_script_runner_thread(self):
         """Kiểm tra nguồn script và bắt đầu luồng chạy."""
-        selected_profiles = self.get_selected_profiles_script() # Lấy từ tab script
+        # ... (Code giữ nguyên) ...
+        selected_profiles = self.get_selected_profiles_script()
         script_content = ""
-        if self.script_paste_textbox.winfo_exists(): # Lấy nội dung từ ô paste nếu có
+        if hasattr(self, 'script_paste_textbox') and self.script_paste_textbox.winfo_exists():
              script_content = self.script_paste_textbox.get("1.0", tkinter.END).strip()
-
         script_to_run_path = None
         temp_file_created_path = None
-
-        # Ưu tiên Textbox
         if script_content:
             update_status(self.status_textbox_script, "Phát hiện script trong ô text. Sẽ tạo file tạm để chạy.\n")
             try:
-                with tempfile.NamedTemporaryFile(mode='w+', suffix='.py', delete=False, encoding='utf-8') as temp_file:
+                fd, temp_file_created_path = tempfile.mkstemp(suffix='.py', text=True)
+                with os.fdopen(fd, 'w', encoding='utf-8') as temp_file:
                     temp_file.write(script_content)
-                    temp_file_created_path = temp_file.name
-                    script_to_run_path = temp_file_created_path
+                script_to_run_path = temp_file_created_path
                 print(f"Đã tạo file tạm: {script_to_run_path}")
             except Exception as e:
                 tkinter.messagebox.showerror("Lỗi tạo file tạm", f"Không thể tạo file script tạm thời:\n{e}")
+                if temp_file_created_path and os.path.exists(temp_file_created_path):
+                     try: os.remove(temp_file_created_path)
+                     except OSError: pass
                 return
-        # Nếu Textbox trống, dùng file đã chọn
         elif self.selected_script_path and os.path.exists(self.selected_script_path):
             script_to_run_path = self.selected_script_path
             update_status(self.status_textbox_script, f"Sử dụng file script đã chọn: {os.path.basename(script_to_run_path)}\n")
         else:
             tkinter.messagebox.showerror("Lỗi", "Vui lòng chọn một file script Python hoặc dán mã vào ô text.")
             return
-
         if not selected_profiles:
             tkinter.messagebox.showerror("Lỗi", "Vui lòng chọn ít nhất một profile (từ danh sách trên) để chạy script.")
             if temp_file_created_path:
                  try: os.remove(temp_file_created_path)
                  except OSError: pass
             return
-
-        # Cảnh báo bảo mật
         warning_script_name = os.path.basename(script_to_run_path)
         if not tkinter.messagebox.askyesno("CẢNH BÁO BẢO MẬT",
             f"Bạn sắp chạy script Python:\n\n{warning_script_name}\n{' (Từ ô text)' if temp_file_created_path else ' (Từ file)'}\n\n"
@@ -283,22 +333,21 @@ class ProfileCreatorApp(customtkinter.CTk):
                  try: os.remove(temp_file_created_path)
                  except OSError: pass
             return
+        if hasattr(self, 'run_script_button') and self.run_script_button.winfo_exists():
+             self.run_script_button.configure(state=tkinter.DISABLED)
+        if hasattr(self, 'status_textbox_script') and self.status_textbox_script.winfo_exists():
+            self.status_textbox_script.delete("1.0", tkinter.END)
 
-        # Vô hiệu hóa nút và xóa status box script
-        self.run_script_button.configure(state=tkinter.DISABLED)
-        self.status_textbox_script.delete("1.0", tkinter.END)
-
-        # Bắt đầu thread, truyền đúng status box và nút, gọi hàm từ script_runner
         thread = threading.Thread(
-            target=run_python_script_threaded, # Gọi hàm từ module script_runner
+            target=run_python_script_threaded,
             args=(script_to_run_path, selected_profiles, self.status_textbox_script, self.run_script_button, temp_file_created_path),
             daemon=True
         )
         thread.start()
 
-    # --- Hàm xử lý cho tab Tạo Profile ---
     def start_creation_thread(self):
         """Bắt đầu luồng tạo profile."""
+        # ... (Code giữ nguyên, truyền self.loaded_ua_list) ...
         try:
             num_profiles = int(self.entry_num.get())
             if num_profiles <= 0:
@@ -311,32 +360,39 @@ class ProfileCreatorApp(customtkinter.CTk):
         if not base_dir:
             tkinter.messagebox.showerror("Lỗi", "Vui lòng chọn thư mục gốc.")
             return
+        if not os.path.isdir(base_dir):
+             try:
+                 os.makedirs(base_dir)
+                 update_status(self.status_textbox_create, f"Đã tạo thư mục gốc được chỉ định: {base_dir}\n")
+             except OSError as e:
+                 tkinter.messagebox.showerror("Lỗi thư mục", f"Thư mục gốc không tồn tại và không thể tạo:\n{base_dir}\nLỗi: {e}")
+                 return
         use_random_ua = self.check_random_ua_var.get()
 
-        self.create_button.configure(state=tkinter.DISABLED)
-        self.status_textbox_create.delete("1.0", tkinter.END)
+        if hasattr(self, 'create_button') and self.create_button.winfo_exists():
+             self.create_button.configure(state=tkinter.DISABLED)
+        if hasattr(self, 'status_textbox_create') and self.status_textbox_create.winfo_exists():
+             self.status_textbox_create.delete("1.0", tkinter.END)
 
-        # Bắt đầu thread, truyền đúng status box và nút, gọi hàm từ profile_actions
         thread = threading.Thread(
-            target=create_chrome_profiles_threaded, # Gọi hàm từ module profile_actions
-            args=(num_profiles, base_dir, use_random_ua, self.status_textbox_create, self.progress_bar, self.create_button),
+            target=create_chrome_profiles_threaded,
+            args=(num_profiles, base_dir, use_random_ua,
+                  self.status_textbox_create, self.progress_bar, self.create_button,
+                  self.loaded_ua_list), # Truyền danh sách đã tải
             daemon=True
         )
         thread.start()
-        # Sau khi tạo xong, có thể tự động gọi refresh ở đây nếu muốn, nhưng cần đợi thread hoàn thành
-        # self.after(100, self._check_creation_thread_and_refresh, thread) # Ví dụ cách phức tạp hơn
 
 
 # --- Chạy ứng dụng ---
 if __name__ == "__main__":
-    # 1. Kiểm tra Dependencies trước tiên
-    REQUIRED_LIBRARIES = ["selenium", "customtkinter"]
+    # <<< THAY ĐỔI DANH SÁCH DEPENDENCY >>>
+    REQUIRED_LIBRARIES = ["selenium", "customtkinter", "webdriver-manager", "psutil"]
     if not check_and_install_dependencies(REQUIRED_LIBRARIES):
         print("Thoát ứng dụng do lỗi dependencies.")
         sys.exit(1)
 
-    # 2. Nếu dependencies OK, thì mới import và chạy app
-    import customtkinter # Import sau khi kiểm tra
+    import customtkinter
 
     try:
         local_time = time.localtime()
@@ -344,6 +400,5 @@ if __name__ == "__main__":
     except Exception as e_time:
         print(f"Lỗi khi lấy thời gian: {e_time}")
 
-    # 3. Khởi tạo và chạy App
     app = ProfileCreatorApp()
     app.mainloop()
