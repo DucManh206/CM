@@ -6,48 +6,48 @@ import shutil
 import importlib.util
 import subprocess
 import tkinter.messagebox
-import tkinter # Cần cho root tạm thời của messagebox
+import tkinter
+import psutil # <<< Thêm import psutil
 
 # --- Biến toàn cục cho User Agents ---
-LOADED_USER_AGENT_LIST = []
 UA_FILENAME = "user_agents.txt"
 
 def load_user_agents():
-    """Tải danh sách User Agent từ file vào biến toàn cục."""
-    global LOADED_USER_AGENT_LIST
-    LOADED_USER_AGENT_LIST = [] # Reset trước khi tải
+    # ... (Giữ nguyên code tải UA như trước) ...
+    loaded_list = []
     try:
         utils_dir = os.path.dirname(os.path.abspath(__file__))
         ua_file_path = os.path.join(utils_dir, UA_FILENAME)
-
         print(f"Đang đọc User Agents từ: {ua_file_path}")
+        if not os.path.exists(ua_file_path):
+             print(f"Lỗi: File không tồn tại '{ua_file_path}'")
+             return []
         with open(ua_file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 ua = line.strip()
                 if ua and not ua.startswith("#"):
-                    LOADED_USER_AGENT_LIST.append(ua)
-
-        if LOADED_USER_AGENT_LIST:
-            print(f"Đã tải thành công {len(LOADED_USER_AGENT_LIST)} User Agents.")
-            return True
+                    loaded_list.append(ua)
+        if loaded_list:
+            print(f"Đã tải thành công {len(loaded_list)} User Agents.")
         else:
             print(f"Cảnh báo: File '{UA_FILENAME}' trống hoặc chỉ chứa comment.")
-            return False
+        return loaded_list
     except FileNotFoundError:
-        print(f"Lỗi: Không tìm thấy file '{UA_FILENAME}' trong cùng thư mục với utils.py.")
-        print(f"(Thư mục hiện tại được kiểm tra: {os.path.dirname(os.path.abspath(__file__))})")
-        return False
+        print(f"Lỗi FileNotFoundError: Không tìm thấy file '{UA_FILENAME}' tại '{ua_file_path}'.")
+        return []
     except Exception as e:
-        print(f"Lỗi không xác định khi đọc file User Agent: {e}")
-        return False
+        import traceback
+        print(f"Lỗi không xác định khi đọc file User Agent: {e}\n{traceback.format_exc()}")
+        return []
 
+# --- Hàm tìm Chrome (Giữ nguyên) ---
 def get_chrome_executable_path():
-    """Cố gắng tìm đường dẫn đến file thực thi của Google Chrome."""
+    # ... (Giữ nguyên code) ...
     chrome_executable = None
     try:
         if sys.platform == "win32":
             chrome_executable = shutil.which("chrome.exe")
-        elif sys.platform == "darwin": # macOS
+        elif sys.platform == "darwin":
              chrome_executable = shutil.which("Google Chrome")
              if not chrome_executable:
                  default_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -55,8 +55,6 @@ def get_chrome_executable_path():
                      chrome_executable = default_path
         elif sys.platform.startswith("linux"):
             chrome_executable = shutil.which("google-chrome") or shutil.which("chrome")
-
-        # Fallback cho Windows nếu không có trong PATH
         if not chrome_executable and sys.platform == "win32":
             possible_paths = [
                 os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "Google\\Chrome\\Application\\chrome.exe"),
@@ -69,15 +67,15 @@ def get_chrome_executable_path():
                     break
     except Exception as e:
         print(f"Lỗi khi tìm Chrome: {e}")
-
     if chrome_executable:
         print(f"Đã tìm thấy Chrome tại: {chrome_executable}")
     else:
         print("Không tìm thấy Chrome executable.")
     return chrome_executable
 
+# --- Hàm update_status (Giữ nguyên) ---
 def update_status(textbox, message):
-    """Cập nhật nội dung cho CTkTextbox một cách an toàn từ các thread."""
+    # ... (Giữ nguyên code) ...
     def _update():
         safe_message = str(message)
         if textbox.winfo_exists():
@@ -85,33 +83,28 @@ def update_status(textbox, message):
             textbox.see(tkinter.END)
         else:
             print(f"Cảnh báo update_status: Textbox không còn tồn tại.")
-
     try:
-        # Lấy widget gốc (master) một cách an toàn hơn
         widget_to_schedule_on = textbox
         while widget_to_schedule_on.master is not None and hasattr(widget_to_schedule_on.master, 'after'):
             widget_to_schedule_on = widget_to_schedule_on.master
-            # Dừng lại nếu đạt đến cửa sổ gốc hoặc widget không tồn tại
             if isinstance(widget_to_schedule_on, (tkinter.Tk, tkinter.Toplevel)) or not widget_to_schedule_on.winfo_exists():
                  break
-
         if widget_to_schedule_on.winfo_exists():
              widget_to_schedule_on.after(0, _update)
-        elif textbox.winfo_exists(): # Fallback về chính textbox nếu không tìm được gốc phù hợp
+        elif textbox.winfo_exists():
              textbox.after(0, _update)
         else:
              print(f"Cảnh báo update_status: Không thể lên lịch cập nhật cho textbox đã bị hủy.")
     except Exception as e:
-        # Ghi log lỗi chi tiết hơn nếu cần
         import traceback
         print(f"Lỗi trong update_status khi gọi after: {e}\n{traceback.format_exc()}")
 
-
+# --- Hàm check_and_install_dependencies (Thêm thư viện mới) ---
 def check_and_install_dependencies(required_libs):
     """Kiểm tra và cài đặt dependencies."""
+    # ... (Phần lớn code giữ nguyên, chỉ thay đổi list và thông báo nếu cần) ...
     all_ok = True
     missing_libs = []
-
     print("--- Kiểm tra Dependencies ---")
     for lib_name in required_libs:
         try:
@@ -126,15 +119,13 @@ def check_and_install_dependencies(required_libs):
              missing_libs.append(lib_name)
         except Exception as e:
              print(f"Lỗi khi kiểm tra thư viện '{lib_name}': {e}")
-             missing_libs.append(lib_name) # Coi như thiếu
-
+             missing_libs.append(lib_name)
     if not missing_libs:
         print("Tất cả dependencies cần thiết đã có.")
         return True
-
     libs_str = ", ".join(missing_libs)
     root = None
-    user_confirm = False # Mặc định là không đồng ý
+    user_confirm = False
     try:
         root = tkinter.Tk()
         root.withdraw()
@@ -149,7 +140,6 @@ def check_and_install_dependencies(required_libs):
     finally:
         if root:
             root.destroy()
-
     if not user_confirm:
         print("Người dùng đã từ chối cài đặt tự động.")
         root_err = None
@@ -163,7 +153,6 @@ def check_and_install_dependencies(required_libs):
             if root_err:
                 root_err.destroy()
         return False
-
     print(f"\n--- Bắt đầu cài đặt thư viện bị thiếu: {libs_str} ---")
     for lib_name in missing_libs:
         print(f"\nĐang cài đặt '{lib_name}'...")
@@ -171,7 +160,6 @@ def check_and_install_dependencies(required_libs):
             command = [sys.executable, "-m", "pip", "install", lib_name]
             print(f"Executing: {' '.join(command)}")
             result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace', check=False, timeout=300)
-
             if result.returncode == 0:
                 print(f"-> Cài đặt '{lib_name}' thành công!")
                 importlib.invalidate_caches()
@@ -183,18 +171,16 @@ def check_and_install_dependencies(required_libs):
                 print("--- Pip Error (Last 1000 chars) ---")
                 print(result.stderr[-1000:])
                 print("------------------------------------")
-                root_err_pip = None
+                root_err_pip=None
                 try:
                     root_err_pip = tkinter.Tk()
                     root_err_pip.withdraw()
                     tkinter.messagebox.showerror("Lỗi Cài Đặt", f"Không thể tự động cài đặt '{lib_name}'.\nLỗi pip (kiểm tra console).\n\nVui lòng thử cài đặt thủ công:\npip install {lib_name}")
                 except Exception as e:
-                    print(f"Lỗi hiển thị messagebox lỗi pip: {e}")
+                     print(f"Lỗi hiển thị messagebox lỗi pip: {e}")
                 finally:
                     if root_err_pip:
                         root_err_pip.destroy()
-                # return False # Dừng nếu muốn
-
         except subprocess.TimeoutExpired:
             all_ok = False
             print(f"Lỗi: Cài đặt '{lib_name}' vượt quá thời gian chờ.")
@@ -208,7 +194,6 @@ def check_and_install_dependencies(required_libs):
             finally:
                 if root_err_timeout:
                     root_err_timeout.destroy()
-
         except Exception as e:
             all_ok = False
             print(f"Lỗi nghiêm trọng khi chạy pip cho '{lib_name}': {e}")
@@ -222,8 +207,6 @@ def check_and_install_dependencies(required_libs):
             finally:
                 if root_err_sys:
                     root_err_sys.destroy()
-            # return False
-
     if all_ok:
         print("\n--- Hoàn tất cài đặt dependencies ---")
         root_ok = None
@@ -238,5 +221,103 @@ def check_and_install_dependencies(required_libs):
                 root_ok.destroy()
     else:
          print("\n*** Có lỗi xảy ra trong quá trình cài đặt dependencies ***")
-
     return all_ok
+
+# --- Hàm mới: Đóng tiến trình Chrome theo Profile Path ---
+def close_chrome_process_by_profile(profile_path, status_textbox=None):
+    """
+    Cố gắng tìm và đóng tiến trình Chrome đang sử dụng profile_path cụ thể.
+
+    Args:
+        profile_path (str): Đường dẫn tuyệt đối đến thư mục profile.
+        status_textbox: Textbox để ghi log (tùy chọn).
+
+    Returns:
+        bool: True nếu tìm thấy và cố gắng đóng thành công, False nếu không tìm thấy hoặc lỗi.
+    """
+    if not psutil: # Kiểm tra xem psutil đã được import thành công chưa
+        msg = "Lỗi: Thư viện 'psutil' không khả dụng để đóng tiến trình Chrome."
+        print(msg)
+        if status_textbox: update_status(status_textbox, msg + "\n")
+        return False
+
+    target_arg = f"--user-data-dir={profile_path}"
+    # Chuẩn hóa đường dẫn để so sánh tốt hơn (ví dụ: xử lý dấu / và \)
+    normalized_target_arg = f"--user-data-dir={os.path.normpath(profile_path)}"
+    found_process = None
+    process_closed = False
+
+    print(f"Đang tìm tiến trình Chrome sử dụng: {normalized_target_arg}")
+    if status_textbox: update_status(status_textbox, f"Đang tìm tiến trình cho profile: {os.path.basename(profile_path)}...\n")
+
+    try:
+        # Lặp qua các tiến trình đang chạy
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'username']):
+            try:
+                # Lấy thông tin tiến trình, bỏ qua nếu lỗi (vd: process đã chết)
+                cmdline = proc.info.get('cmdline')
+                proc_name = proc.info.get('name', '').lower()
+
+                # Kiểm tra tên tiến trình (có thể khác nhau tùy HĐH)
+                is_chrome = 'chrome' in proc_name
+
+                if is_chrome and cmdline:
+                    # Kiểm tra command line arguments
+                    normalized_cmdline = [os.path.normpath(arg) for arg in cmdline]
+                    # print(f"DEBUG: Checking PID {proc.info['pid']} - Cmdline: {' '.join(normalized_cmdline)}") # Debug nếu cần
+                    if normalized_target_arg in normalized_cmdline:
+                        found_process = proc
+                        print(f"Tìm thấy tiến trình Chrome (PID: {found_process.pid}, User: {proc.info.get('username')}) khớp với profile.")
+                        if status_textbox: update_status(status_textbox, f"  -> Tìm thấy tiến trình PID: {found_process.pid}. Đang thử đóng...\n")
+                        break # Tìm thấy là đủ
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue # Bỏ qua các process không truy cập được hoặc đã chết
+            except Exception as e_iter:
+                 print(f"Lỗi nhỏ khi lặp qua tiến trình: {e_iter}") # Ghi log lỗi nhỏ
+
+        # Nếu tìm thấy, cố gắng đóng
+        if found_process:
+            try:
+                print(f"Đang thử terminate PID: {found_process.pid}")
+                found_process.terminate() # Gửi tín hiệu đóng nhẹ nhàng trước
+                try:
+                    # Chờ tối đa 2 giây xem nó có tự đóng không
+                    found_process.wait(timeout=2)
+                    print(f"PID {found_process.pid} đã tự đóng sau terminate.")
+                    process_closed = True
+                    if status_textbox: update_status(status_textbox, f"  -> Đã đóng tiến trình PID: {found_process.pid} (terminate).\n")
+                except psutil.TimeoutExpired:
+                     # Nếu vẫn chạy sau 2 giây, kill mạnh
+                     print(f"PID {found_process.pid} không đóng sau terminate. Đang thử kill...")
+                     found_process.kill()
+                     found_process.wait(timeout=1) # Chờ chút sau khi kill
+                     print(f"PID {found_process.pid} đã bị kill.")
+                     process_closed = True
+                     if status_textbox: update_status(status_textbox, f"  -> Đã đóng tiến trình PID: {found_process.pid} (kill).\n")
+            except psutil.NoSuchProcess:
+                print(f"PID {found_process.pid} đã đóng trước khi kịp xử lý.")
+                process_closed = True # Coi như đã đóng thành công
+                if status_textbox: update_status(status_textbox, f"  -> Tiến trình PID: {found_process.pid} đã tự đóng.\n")
+            except psutil.AccessDenied:
+                 err_msg = f"Lỗi: Không có quyền đóng tiến trình Chrome (PID: {found_process.pid}).\n"
+                 print(err_msg)
+                 if status_textbox: update_status(status_textbox, err_msg)
+            except Exception as e_close:
+                 err_msg = f"Lỗi không xác định khi đóng tiến trình (PID: {found_process.pid}): {e_close}\n"
+                 print(err_msg)
+                 if status_textbox: update_status(status_textbox, err_msg)
+        else:
+            msg = f"Không tìm thấy tiến trình Chrome nào đang chạy với profile này.\n"
+            print(msg.strip())
+            if status_textbox: update_status(status_textbox, msg)
+            # Không tìm thấy cũng không phải là lỗi trong ngữ cảnh này
+            process_closed = True # Coi như không cần đóng
+
+    except Exception as e_main:
+        # Lỗi chung khi tìm kiếm process
+        err_msg = f"Lỗi khi sử dụng psutil để tìm tiến trình: {e_main}\n"
+        print(err_msg)
+        if status_textbox: update_status(status_textbox, err_msg)
+
+    return process_closed # Trả về True nếu đã đóng hoặc không tìm thấy, False nếu lỗi quyền/lỗi khác
