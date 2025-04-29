@@ -1,4 +1,5 @@
 # script_runner.py
+# -*- coding: utf-8 -*-
 import os
 import sys
 import subprocess
@@ -17,12 +18,23 @@ def run_python_script_threaded(script_path_to_run, selected_profiles, status_tex
     update_status(status_textbox_script, f"\n=== Bắt đầu chạy script {source_type}: {script_basename} ===\n")
     update_status(status_textbox_script, f"Số profile được chọn: {total_selected}\n")
 
-    python_executable = sys.executable # Dùng chính trình Python đang chạy tool
+    python_executable = sys.executable
+    if not python_executable:
+        update_status(status_textbox_script, "LỖI NGHIÊM TRỌNG: Không thể xác định đường dẫn Python executable.\n")
+        if run_button.winfo_exists():
+             run_button.master.after(0, lambda: run_button.configure(state="normal"))
+        return # Không thể chạy nếu không biết python ở đâu
+
     success_count = 0
     error_count = 0
 
     try: # Bọc try...finally để đảm bảo xóa file tạm
         for i, profile_path in enumerate(selected_profiles):
+            # Kiểm tra xem nút/app còn tồn tại không trước mỗi vòng lặp nặng
+            if not run_button.winfo_exists():
+                print("Nút chạy script không còn tồn tại, dừng thread.")
+                break
+
             profile_name = os.path.basename(profile_path)
             update_status(status_textbox_script, f"\n[{i+1}/{total_selected}] Đang chạy script trên profile: '{profile_name}'\n")
             update_status(status_textbox_script, f"  Profile path: {profile_path}\n")
@@ -36,7 +48,21 @@ def run_python_script_threaded(script_path_to_run, selected_profiles, status_tex
                 command = [python_executable, script_path_to_run, profile_path]
                 update_status(status_textbox_script, f"  Executing: {' '.join(command)}\n")
                 # Chạy và đợi hoàn thành, timeout 10 phút (600 giây)
-                result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace', check=False, timeout=600)
+                # Sử dụng CREATE_NO_WINDOW trên Windows để tránh cửa sổ console thừa
+                startupinfo = None
+                if sys.platform == "win32":
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE # Ẩn cửa sổ console
+
+                result = subprocess.run(command,
+                                        capture_output=True,
+                                        text=True,
+                                        encoding='utf-8',
+                                        errors='replace',
+                                        check=False,
+                                        timeout=600,
+                                        startupinfo=startupinfo) # Thêm startupinfo
 
                 # Hiển thị stdout
                 if result.stdout:
@@ -66,7 +92,9 @@ def run_python_script_threaded(script_path_to_run, selected_profiles, status_tex
                  update_status(status_textbox_script, f"  LỖI: Script chạy quá thời gian cho phép (timeout) trên profile '{profile_name}'.\n")
                  error_count += 1
             except Exception as e:
+                import traceback
                 update_status(status_textbox_script, f"  Lỗi không xác định khi chạy subprocess cho profile '{profile_name}': {e}\n")
+                print(f"ERROR: Lỗi subprocess:\n{traceback.format_exc()}") # In traceback chi tiết vào console
                 error_count += 1
             time.sleep(0.1) # Nghỉ chút
 
@@ -84,6 +112,6 @@ def run_python_script_threaded(script_path_to_run, selected_profiles, status_tex
         update_status(status_textbox_script, f"\n=== Hoàn tất chạy script: {script_basename} ===\n")
         update_status(status_textbox_script, f"Kết quả: {success_count} thành công, {error_count} lỗi.\n")
 
-        # Kích hoạt lại nút Run Script trên main thread
+        # Kích hoạt lại nút Run Script trên main thread một cách an toàn
         if run_button.winfo_exists():
-            run_button.master.after(0, lambda: run_button.configure(state="normal")) # Sửa state thành "normal"
+            run_button.master.after(0, lambda: run_button.configure(state="normal"))
